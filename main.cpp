@@ -1,11 +1,13 @@
 #include "parameters.h"
-#include "slave_boson.h"
+#include "impurity_solver.h"
+#include "green_function.h"
 #include <iostream>
 #include <vector>
 #include <complex> //this contains complex numbers and trig functions
 #include <fstream>
 #include <cmath>
 #include <limits>
+#include <iomanip>  
 
 void get_momentum_vectors(std::vector<double> &kx, std::vector<double> &ky, Parameters &parameters) {
 	for (int i = 0; i < parameters.num_kx_points; i++) {
@@ -25,199 +27,153 @@ void get_momentum_vectors(std::vector<double> &kx, std::vector<double> &ky, Para
 	}
 }
 
-void get_interacting_gf(const Parameters &parameters, const dcomp hamiltonian, const double &occupation, std::vector<dcomp> &interacting_gf){
-    dcomp inverse_gf;
-    for(int r = 0; r < parameters.steps; r++){
-        inverse_gf = parameters.energy.at(r) + parameters.j1 * parameters.delta_gf - hamiltonian - occupation * parameters.hubbard_interaction;
-        interacting_gf.at(r) = 1.0 / inverse_gf;
-    }
+void print_gf_lesser_greater(const Parameters &parameters, const int &voltage_step, std::vector<dcomp> &gf_lesser, std::vector<dcomp> &gf_greater) {
+	
+	std::ostringstream ossgf;
+	ossgf << voltage_step << ".greater_gf.dat";
+	std::string var = ossgf.str();
+	std::ofstream gf_greater_file;
+	gf_greater_file.open(var);
+	for (int r = 0; r < parameters.steps; r++) {
+		gf_greater_file << parameters.energy.at(r) << "  " << gf_greater.at(r).real() << "   " << gf_greater.at(r).imag() << "  \n";
+	}
+	gf_greater_file.close();
+
+    ossgf.str("");
+    ossgf.clear();
+	ossgf << voltage_step << ".lesser_gf.dat";
+	var = ossgf.str();
+	std::ofstream gf_lesser_file;
+	gf_lesser_file.open(var);
+	for (int r = 0; r < parameters.steps; r++) {
+		gf_lesser_file << parameters.energy.at(r) << "  " << gf_lesser.at(r).real() << "   " << gf_lesser.at(r).imag() << "  \n";
+	}
+	gf_lesser_file.close();
+
 }
 
-
-void get_hamiltonian(Parameters const &parameters, const double kx, const double ky, dcomp &hamiltonian){
-    hamiltonian = parameters.onsite_cor + 2 * parameters.hopping * (cos(kx) + cos(ky)); 
+void print_dos(const Parameters &parameters, const int &voltage_step, std::vector<dcomp> &gf_lesser, std::vector<dcomp> &gf_greater) {
+	std::ostringstream ossgf;
+	ossgf << voltage_step << ".dos.dat";
+	double dos_integral = 0.0;
+	std::string var = ossgf.str();
+	std::ofstream dos;
+	dos.open(var);
+	for (int r = 0; r < parameters.steps; r++) {
+		dos << parameters.energy.at(r) << "  " << 0.5 * (gf_lesser.at(r).imag() - gf_greater.at(r).imag()) << "  \n";
+		dos_integral += 0.5 * (gf_lesser.at(r).imag() - gf_greater.at(r).imag());
+	}
+	std::cout << "The dos integrated for all energies is " << dos_integral * parameters.delta_energy << std::endl;
+	dos.close();
 }
 
+void get_lesser_greater_gf(const Parameters &parameters, const Interacting_GF &boson, const Interacting_GF &fermion, 
+     const double &z_prefactor, std::vector<dcomp> &gf_lesser, std::vector<dcomp> &gf_greater) {
 
-void get_local_gf(const Parameters &parameters, double occupation, std::vector<dcomp> &gf_local, const std::vector<std::vector<dcomp>> &hamiltonian){
-
-    int n_x = parameters.num_kx_points;
-    int n_y = parameters.num_ky_points;
-
-    double num_k_points = n_x * n_y;
-    
-	for(int r = 0; r < parameters.steps; r++){
-        gf_local.at(r) = 0;
-    }
-
-
-    for(int kx_i = 0; kx_i < n_x; kx_i++) {
-        for(int ky_i = 0; ky_i < n_y; ky_i++) {
-            std::vector<dcomp> gf_k_dep(parameters.steps, 0);
-            get_interacting_gf(parameters, hamiltonian.at(kx_i).at(ky_i), occupation, gf_k_dep);
-            for(int r = 0; r < parameters.steps; r++){
-                gf_local.at(r) +=  gf_k_dep.at(r) * ( 1.0 / num_k_points);
-            }
-        }
-    }
-}
-
-void get_spin_occupation(const Parameters &parameters, const std::vector<dcomp> &gf_r_up,
-                        const std::vector<dcomp> &gf_r_down, double *spin_up, double *spin_down)
-{
-	double delta_energy = (parameters.e_upper_bound - parameters.e_lower_bound) / (double)(parameters.steps);
-	double result_up = 0.0, result_down = 0.0;
+	//std::cout << parameters.steps << std::endl;
 
 	for (int r = 0; r < parameters.steps; r++) {
-		result_up -= (delta_energy) * 2.0 * fermi_function(parameters.energy.at(r), parameters) * gf_r_up.at(r).imag();
-		result_down -= (delta_energy) * 2.0 * fermi_function(parameters.energy.at(r), parameters) * gf_r_down.at(r).imag();
+		for (int i = 0; i < parameters.steps; i++) {
+			if (((i + r) >= (parameters.steps / 2)) && ((i + r) < 3 * (parameters.steps / 2))) {
+				//std::cout << r << " " << i << "  " << parameters.energy.at(r) + parameters.energy.at(i)  << "  " << parameters.energy.at(r + i - (parameters.steps / 2)) << "\n ";
+				gf_lesser.at(r) += boson.greater_gf.at(i) * fermion.lesser_gf.at(i + r - (parameters.steps / 2));
+				gf_greater.at(r) += boson.lesser_gf.at(i) * fermion.greater_gf.at(i + r - (parameters.steps / 2));				
+			}		
+		}
+		//std::cout << parameters.steps / 2 << std::endl;
+		gf_lesser.at(r) = gf_lesser.at(r) * z_prefactor * parameters.j1 / (2.0 * M_PI) * parameters.delta_energy;
+		gf_greater.at(r) = gf_greater.at(r) * z_prefactor * parameters.j1 / (2.0 * M_PI) * parameters.delta_energy;		
+	}
+}
+
+void get_current(const Parameters &parameters, const std::vector<dcomp> &gf_lesser, const std::vector<dcomp> &gf_greater, const int voltage_step,
+	 double &current_left, double &current_right) {
+	for (int r = 0; r < parameters.steps; r++) {
+		double hybridisation = (parameters.energy.at(r) * parameters.energy.at(r) + parameters.bandwidth * parameters.bandwidth);
+		current_left += ((1.0 - fermi_function(parameters.energy.at(r) - parameters.voltage_l[voltage_step], parameters)) * gf_lesser.at(r).imag() 
+			+ fermi_function(parameters.energy.at(r) - parameters.voltage_l[voltage_step], parameters) * gf_greater.at(r).imag()) / hybridisation;
+		current_right += ((1.0 - fermi_function(parameters.energy.at(r) - parameters.voltage_r[voltage_step], parameters)) * gf_lesser.at(r).imag() 
+			+ fermi_function(parameters.energy.at(r) - parameters.voltage_r[voltage_step], parameters) * gf_greater.at(r).imag()) / hybridisation;
+	}
+	current_left = current_left * parameters.delta_energy * parameters.gamma * parameters.bandwidth * parameters.bandwidth;
+	current_right = current_right * parameters.delta_energy * parameters.gamma * parameters.bandwidth * parameters.bandwidth;	
+}
+
+void get_conductance(const Parameters &parameters, const int &voltage_step, std::vector<dcomp> &gf_lesser, std::vector<dcomp> &gf_greater) {
+	double conductance = 0;
+
+	for (int r = 0; r < parameters.steps; r++) {
+		double dos = 0.5 * (gf_lesser.at(r).imag() - gf_greater.at(r).imag());
+		double coupling = parameters.gamma * parameters.bandwidth * parameters.bandwidth / (parameters.energy.at(r) * parameters.energy.at(r) + parameters.bandwidth * parameters.bandwidth);
+		double derivative =  exp((parameters.energy.at(r) - parameters.chemical_potential) / parameters.temperature) / (parameters.temperature * 
+		(1.0 + exp((parameters.energy.at(r) - parameters.chemical_potential) / parameters.temperature)) *
+		(1.0 + exp((parameters.energy.at(r) - parameters.chemical_potential) / parameters.temperature))); 
+		if (std::isnan(derivative) == true) { //this is a big hack but i think it is just numerical problems that the derivative can be nan away from the chemical potential
+			derivative = 0;
+		}
+
+		//std::cout << parameters.energy.at(r) << " " << dos << " " << coupling << " " << derivative << "\n";
+		conductance += dos * coupling * derivative;
+	}
+
+	std::cout << "The conductance is " << conductance * parameters.delta_energy * 2.0 * M_PI << "\n";
+}
+
+
+void get_spin_occupation(const Parameters &parameters, const std::vector<dcomp> &gf_lesser, double &z_prefactor)
+{
+	double occupation = 0.0;
+
+	for (int r = 0; r < parameters.steps; r++) {
+		occupation += gf_lesser.at(r).imag();
 	}
 	
-	result_up = 1.0 / (2.0 * M_PI) * result_up;
-	result_down = 1.0 / (2.0 * M_PI) * result_down;
-
-    *spin_up = result_up;
-    *spin_down = result_down;
-}
-
-double absolute_value(double num1) {
-	return std::sqrt((num1 ) * (num1));
-}
-
-void get_difference(const Parameters &parameters, std::vector<dcomp> &gf_local_up, std::vector<dcomp> &old_green_function,
-                double &difference, int &index){
-	difference = - std::numeric_limits<double>::infinity();
-	double old_difference = 0;
-	double real_difference = 0, imag_difference = 0;
-	for (int r = 0; r < parameters.steps; r++) {
-		real_difference = absolute_value(gf_local_up.at(r).real() - old_green_function.at(r).real());
-		imag_difference = absolute_value(gf_local_up.at(r).imag() - old_green_function.at(r).imag());
-		//std::cout << gf_local_up.at(r)(i, j).real() << " " << old_green_function.at(r)(i, j).real() << std::endl;
-		//std::cout << real_difference << "  " << imag_difference << "  "  << difference << "\n";
-		difference = std::max(difference, std::max(real_difference, imag_difference));
-		old_green_function.at(r) = gf_local_up.at(r);
-		
-        if (difference > old_difference) {
-			index = r;
-		}
-		old_difference = difference;
-	}
-	//std::cout << "The difference is " << difference <<  std::endl;
-}
-
-void dmft(const Parameters &parameters, double *up_occup, double *down_occup, std::vector<dcomp> &gf_local_up, std::vector<dcomp> &gf_local_down,
-    const std::vector<std::vector<dcomp>> &hamiltonian)
-{
-	double difference = std::numeric_limits<double>::infinity();
-	int index, count = 0;
-
-	std::vector<dcomp> old_green_function(parameters.steps, 0);
-
-	while (difference > parameters.convergence && count < parameters.self_consistent_steps) {
-
-        get_local_gf(parameters, *down_occup, gf_local_up, hamiltonian);
-        get_local_gf(parameters, *up_occup, gf_local_down, hamiltonian);
-
-		get_difference(parameters, gf_local_up, old_green_function, difference, index);
-
-		if (difference < parameters.convergence) {
-			break;
-		}
-
-
-        get_spin_occupation(parameters, gf_local_up, gf_local_down, up_occup, down_occup);
-        //std::cout << "The count is " << count << ". The spin up occupation is " << *up_occup << ". The spin down occupation is " << *down_occup << std::endl;
-		count++;
-    }
-	std::cout << "The count is " << count << ". The difference is " << difference << "\n" 
-		"hubbard U = " << parameters.hubbard_interaction << " spin up occupation = " << *up_occup << " spin down occupation = " << *down_occup << std::endl;
+	occupation = occupation * parameters.delta_energy * z_prefactor / (2.0 * M_PI);
+	std::cout << "the pseudo fermion occupation is " << occupation << std::endl;
 }
 
 int main(int argc, char **argv)
 {
 	Parameters parameters = Parameters::from_file();
-	std::vector<double> kx(parameters.num_kx_points, 0);
-	std::vector<double> ky(parameters.num_ky_points, 0);
-    get_momentum_vectors(kx, ky, parameters);
+	//std::vector<double> kx(parameters.num_kx_points, 0);
+	//std::vector<double> ky(parameters.num_ky_points, 0);
+    //get_momentum_vectors(kx, ky, parameters);
+	std::vector<double> current_left(parameters.NIV_points, 0);
+	std::vector<double> current_right(parameters.NIV_points, 0);
 
-	Interacting_GF boson(parameters);
-	Interacting_GF fermion_up(parameters);
-	Interacting_GF fermion_down(parameters);	
-
-	double up_occupation = parameters.spin_up_occup, down_occupation = parameters.spin_down_occup;
 	for (int m = parameters.NIV_start; m < parameters.NIV_points; m++) {
-		impurity_solver(parameters, boson, fermion_up, fermion_down, m);
-	}
+		std::cout << std::setprecision(15) << "The voltage is " << parameters.voltage_l[m] * 2 << ". \n";
+		Interacting_GF boson(parameters);
+		Interacting_GF fermion_up(parameters);
+		Interacting_GF fermion_down(parameters);	
+
+		std::vector<dcomp> gf_lesser_up(parameters.steps, 0), gf_greater_up(parameters.steps, 0);
+		std::vector<dcomp> gf_lesser_down(parameters.steps, 0), gf_greater_down(parameters.steps, 0);
+		double z_prefactor = 0;
+
+		double up_occupation = parameters.spin_up_occup, down_occupation = parameters.spin_down_occup;
+
+		impurity_solver(parameters, boson, fermion_up, fermion_down, m, z_prefactor);
 
 
+		std::cout << "The ratio of Z_0 / Z_1 is " << z_prefactor << std::endl;
+		get_lesser_greater_gf(parameters, boson, fermion_up, z_prefactor, gf_lesser_up, gf_greater_up);
+		get_lesser_greater_gf(parameters, boson, fermion_down, z_prefactor, gf_lesser_down, gf_greater_down);
 
-
-
-
-    for (int kx_i = 0; kx_i < parameters.num_kx_points; kx_i++) {
-		for (int ky_i = 0; ky_i < parameters.num_ky_points; ky_i++) {
-            get_hamiltonian(parameters, kx.at(kx_i), ky.at(ky_i), hamiltonian.at(kx_i).at(ky_i));
-        }
-    }
-	std::cout << "The initial spin occupation is " << parameters.spin_up_occup << ". The initial spin down occupation is " 
-		<< parameters.spin_down_occup << std::endl;
-
-	for (int i = 14; i < parameters.hubbard_steps; i++) {
-		parameters.hubbard_interaction = (double) i * 0.5;
-		std::cout << parameters.hubbard_interaction << std::endl;
-    	dmft(parameters, &up_occupation, &down_occupation, gf_local_up, gf_local_down, hamiltonian);
-		bool accepted = false;
-		while (accepted != true) {
-			double total_occupation = up_occupation + down_occupation;
-			if (total_occupation < 1.4) {
-				parameters.onsite_cor -= parameters.delta_onsite;
-				accepted = false;
-			} else if (total_occupation > 1.45) {
-				parameters.onsite_cor += parameters.delta_onsite;
-				accepted = false;				
-			} else {
-				accepted = true;
-			}
-			std::cout << accepted << std::endl;
-			if (accepted == false) {
-				up_occupation = parameters.spin_up_occup, down_occupation = parameters.spin_down_occup;
-				gf_local_up.resize(parameters.steps, 0);
-				gf_local_down.resize(parameters.steps, 0);		
-				for (int kx_i = 0; kx_i < parameters.num_kx_points; kx_i++) {
-					for (int ky_i = 0; ky_i < parameters.num_ky_points; ky_i++) {
-            			get_hamiltonian(parameters, kx.at(kx_i), ky.at(ky_i), hamiltonian.at(kx_i).at(ky_i));
-        			}
-    			}
-				dmft(parameters, &up_occupation, &down_occupation, gf_local_up, gf_local_down, hamiltonian);			
-			}	
-			total_occupation = up_occupation + down_occupation;
-			std::cout << total_occupation << " " << up_occupation << " " <<  down_occupation << " " << parameters.onsite_cor << "\n";	
-		}
-
-		std::ostringstream ossgf;
-		ossgf << i <<  ".gf.txt";
-		std::string var = ossgf.str();
-		std::ofstream gf_local_file;
-		gf_local_file.open(var);
-		for (int r = 0; r < parameters.steps; r++) {
-			gf_local_file << parameters.energy.at(r) << "  " << gf_local_up.at(r).real() << "   " << gf_local_up.at(r).imag() << " "
-				<< gf_local_down.at(r).real() << "   " << gf_local_down.at(r).imag() << "  \n";
-		}
-		gf_local_file.close();
-	}
-
-
+		//boson.print_green_function(parameters, m, "boson");
+		//fermion_up.print_green_function(parameters, m, "fermion_up");
+		//fermion_down.print_green_function(parameters, m, "fermion_down");
 	
+		print_gf_lesser_greater(parameters, m, gf_lesser_up, gf_greater_up);
+		print_dos(parameters, m, gf_lesser_up, gf_greater_up);
+		get_spin_occupation(parameters, fermion_up.lesser_gf, z_prefactor);
+		if (m == 0) {
+			get_conductance(parameters, m, gf_lesser_up, gf_greater_up);
+		}
+		get_current(parameters, gf_lesser_up, gf_greater_up, m, current_left.at(m), current_right.at(m));
+	}
 
-    //std::ofstream fermi_function_right;
-	//fermi_function_right.open("fermi_function_right.txt");
-	//for (int r = 0; r < parameters.steps; r++) {
-    //    fermi_function_right << parameters.energy.at(r) << "  " << fermi_function(parameters.energy.at(r) + 0.5, parameters) << "   " 
-    //        << fermi_function(parameters.energy.at(r) - 0.5, parameters) << " \n";
-    //}
-
-            //std::cout << parameters.energy.at(r) << "  " << gf_local_up.at(r).real() << "   " << gf_local_up.at(r).imag() << " "
-			//<< gf_local_down.at(r).real() << "   " << gf_local_down.at(r).imag() << "  \n";
-	//fermi_function_right.close();	
-
+	for (int m = 0; m < parameters.NIV_points; m++) {
+		std::cout << "The voltage is " << parameters.voltage_l[m] * 2 << ". The left current is " << current_left.at(m) << ". The right current is " << current_right.at(m) << "\n";
+	}
 }

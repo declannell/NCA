@@ -117,7 +117,7 @@ Parameters Parameters::from_file()
                 parameters.NIV_start = std::stoi(value);
             } else if (variable == "delta_v") {
 				parameters.delta_v = std::stod(value);
-			}
+			} 
 	}
 	input_file.close();
 	
