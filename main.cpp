@@ -60,8 +60,8 @@ void print_dos(const Parameters &parameters, const int &voltage_step, std::vecto
 	std::ofstream dos;
 	dos.open(var);
 	for (int r = 0; r < parameters.steps; r++) {
-		dos << parameters.energy.at(r) << "  " << 0.5 * (gf_lesser.at(r).imag() - gf_greater.at(r).imag()) << "  \n";
-		dos_integral += 0.5 * (gf_lesser.at(r).imag() - gf_greater.at(r).imag());
+		dos << parameters.energy.at(r) << "  " << (gf_lesser.at(r).imag() - gf_greater.at(r).imag()) / (2.0 * M_PI) << "  \n";
+		dos_integral += (gf_lesser.at(r).imag() - gf_greater.at(r).imag()) / (2.0 * M_PI);
 	}
 	std::cout << "The dos integrated for all energies is " << dos_integral * parameters.delta_energy << std::endl;
 	dos.close();
@@ -73,9 +73,10 @@ void get_lesser_greater_gf(const Parameters &parameters, const Interacting_GF &b
 	//std::cout << parameters.steps << std::endl;
 
 	for (int r = 0; r < parameters.steps; r++) {
+		std::cout << r << " " << parameters.steps - r - 1 << "  " << parameters.energy.at(r) << " " << parameters.energy.at(parameters.steps - r - 1) << "\n";
 		for (int i = 0; i < parameters.steps; i++) {
 			if (((i + r) >= (parameters.steps / 2)) && ((i + r) < 3 * (parameters.steps / 2))) {
-				//std::cout << r << " " << i << "  " << parameters.energy.at(r) + parameters.energy.at(i)  << "  " << parameters.energy.at(r + i - (parameters.steps / 2)) << "\n ";
+				//std::cout << r << " " << i << "  " << parameters.energy.at(r) << "\n";//+ parameters.energy.at(i)  << "  " << parameters.energy.at(r + i - parameters.steps) << "\n ";
 				gf_lesser.at(r) += boson.greater_gf.at(i) * fermion.lesser_gf.at(i + r - (parameters.steps / 2));
 				gf_greater.at(r) += boson.lesser_gf.at(i) * fermion.greater_gf.at(i + r - (parameters.steps / 2));				
 			}		
@@ -132,6 +133,18 @@ void get_spin_occupation(const Parameters &parameters, const std::vector<dcomp> 
 	std::cout << "the pseudo fermion occupation is " << occupation << std::endl;
 }
 
+void get_spin_occupation(const Parameters &parameters, const std::vector<dcomp> &gf_lesser)
+{
+	double occupation = 0.0;
+
+	for (int r = 0; r < parameters.steps; r++) {
+		occupation += gf_lesser.at(r).imag();
+	}
+	
+	occupation = occupation * parameters.delta_energy / (2.0 * M_PI);
+	std::cout << "the occupation is " << occupation << std::endl;
+}
+
 int main(int argc, char **argv)
 {
 	Parameters parameters = Parameters::from_file();
@@ -140,40 +153,52 @@ int main(int argc, char **argv)
     //get_momentum_vectors(kx, ky, parameters);
 	std::vector<double> current_left(parameters.NIV_points, 0);
 	std::vector<double> current_right(parameters.NIV_points, 0);
+	std::vector<double> temperature(3);
+	temperature[0] = 0.005;
+	temperature[1] = 0.05;
+	temperature[2] = 0.5;
 
-	for (int m = parameters.NIV_start; m < parameters.NIV_points; m++) {
-		std::cout << std::setprecision(15) << "The voltage is " << parameters.voltage_l[m] * 2 << ". \n";
-		Interacting_GF boson(parameters);
-		Interacting_GF fermion_up(parameters);
-		Interacting_GF fermion_down(parameters);	
+ 	for (int b = 0; b < 1; b++) {
+		parameters.temperature = temperature[b];
+		std::cout << "the temperature is " << parameters.temperature << std::endl;
 
-		std::vector<dcomp> gf_lesser_up(parameters.steps, 0), gf_greater_up(parameters.steps, 0);
-		std::vector<dcomp> gf_lesser_down(parameters.steps, 0), gf_greater_down(parameters.steps, 0);
-		double z_prefactor = 0;
-
-		double up_occupation = parameters.spin_up_occup, down_occupation = parameters.spin_down_occup;
-
-		impurity_solver(parameters, boson, fermion_up, fermion_down, m, z_prefactor);
-
-
-		std::cout << "The ratio of Z_0 / Z_1 is " << z_prefactor << std::endl;
-		get_lesser_greater_gf(parameters, boson, fermion_up, z_prefactor, gf_lesser_up, gf_greater_up);
-		get_lesser_greater_gf(parameters, boson, fermion_down, z_prefactor, gf_lesser_down, gf_greater_down);
-
-		//boson.print_green_function(parameters, m, "boson");
-		//fermion_up.print_green_function(parameters, m, "fermion_up");
-		//fermion_down.print_green_function(parameters, m, "fermion_down");
-	
-		print_gf_lesser_greater(parameters, m, gf_lesser_up, gf_greater_up);
-		print_dos(parameters, m, gf_lesser_up, gf_greater_up);
-		get_spin_occupation(parameters, fermion_up.lesser_gf, z_prefactor);
-		if (m == 0) {
-			get_conductance(parameters, m, gf_lesser_up, gf_greater_up);
+		for (int m = parameters.NIV_start; m < parameters.NIV_points; m++) {
+			//std::cout << std::setprecision(15) << "The voltage is " << parameters.voltage_l[m] * 2 << ". \n";
+			Interacting_GF boson(parameters);
+			Interacting_GF fermion_up(parameters);
+			Interacting_GF fermion_down(parameters);	
+			std::vector<dcomp> gf_lesser_up(parameters.steps, 0), gf_greater_up(parameters.steps, 0);
+			std::vector<dcomp> gf_lesser_down(parameters.steps, 0), gf_greater_down(parameters.steps, 0);
+			double z_prefactor = 0;
+			double up_occupation = parameters.spin_up_occup, down_occupation = parameters.spin_down_occup;
+			impurity_solver(parameters, boson, fermion_up, fermion_down, m, z_prefactor);
+			//std::cout << "The ratio of Z_0 / Z_1 is " << z_prefactor << std::endl;
+			get_lesser_greater_gf(parameters, boson, fermion_up, z_prefactor, gf_lesser_up, gf_greater_up);
+			get_lesser_greater_gf(parameters, boson, fermion_down, z_prefactor, gf_lesser_down, gf_greater_down);
+			//boson.print_green_function(parameters, m, "boson");
+			//fermion_up.print_green_function(parameters, m, "fermion_up");
+			//fermion_down.print_green_function(parameters, m, "fermion_down");
+			print_gf_lesser_greater(parameters, m, gf_lesser_up, gf_greater_up);
+			print_dos(parameters, m, gf_lesser_up, gf_greater_up);
+			get_spin_occupation(parameters, fermion_up.lesser_gf, z_prefactor);
+			if (m == 0) {
+				get_conductance(parameters, m, gf_lesser_up, gf_greater_up);
+			}
+			get_current(parameters, gf_lesser_up, gf_greater_up, m, current_left.at(m), current_right.at(m));
+			std::cout << "The left current is " << current_left.at(m) << " .The right current is " << current_right.at(m) << "\n";
+			get_spin_occupation(parameters, gf_lesser_up);
 		}
-		get_current(parameters, gf_lesser_up, gf_greater_up, m, current_left.at(m), current_right.at(m));
+
 	}
 
+
+
+	std::ofstream current_file;
+	current_file.open("current.dat");
 	for (int m = 0; m < parameters.NIV_points; m++) {
 		std::cout << "The voltage is " << parameters.voltage_l[m] * 2 << ". The left current is " << current_left.at(m) << ". The right current is " << current_right.at(m) << "\n";
+		current_file << parameters.voltage_l[m] * 2 << " " << current_left.at(m) << " " << current_right.at(m) << "\n";
 	}
+	current_file.close();
+
 }

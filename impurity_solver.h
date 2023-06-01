@@ -18,6 +18,8 @@ void get_retarded_gf_fermion(const Parameters &parameters, Interacting_GF &green
 
 void get_greater_lesser_gf(const Parameters &parameters, Interacting_GF &green_function);
 
+void get_greater_lesser_gf(const Parameters &parameters, Interacting_GF &green_function, std::vector<double> &old_gf_lesser, std::vector<double> &old_gf_greater);
+
 void get_greater_lesser_se_boson(const Parameters &parameters, Interacting_GF &boson, const Interacting_GF &fermion_up,
     const Interacting_GF &fermion_down, int voltage_step);
 

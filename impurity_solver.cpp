@@ -23,7 +23,7 @@ void get_greater_lesser_se_fermion(const Parameters &parameters, const Interacti
         for (int i = 0; i < parameters.steps; i++) {
 
             double coupling = parameters.gamma * parameters.bandwidth * parameters.bandwidth /
-             ((parameters.energy.at(r) - parameters.energy.at(i))* (parameters.energy.at(r) - parameters.energy.at(i)) + parameters.bandwidth * parameters.bandwidth);
+             ((parameters.energy.at(r) - parameters.energy.at(i)) * (parameters.energy.at(r) - parameters.energy.at(i)) + parameters.bandwidth * parameters.bandwidth);
             //if (r == 0) {
             //    std::cout << parameters.energy.at(r)  << " " << parameters.energy.at(i) << " " << fermi_function(parameters.energy.at(r) - parameters.energy.at(i) - parameters.voltage_l[voltage_step], parameters) << std::endl;
             //}
@@ -50,10 +50,8 @@ void get_retarded_se(const Parameters &parameters, Interacting_GF &green_functio
     green_function.retarded_se.clear();
     green_function.retarded_se.resize(parameters.steps, 0);  
 
-    
-
     for (int r = 0; r < parameters.steps; r++) {
-        green_function.retarded_se.at(r) = 2.0 * parameters.j1 * green_function.greater_se.at(r).imag();
+        green_function.retarded_se.at(r) = 0.5 * green_function.greater_se.at(r);
     }
 
     for (int r = 0; r < parameters.steps; r++) {
@@ -83,8 +81,27 @@ void get_retarded_gf_fermion(const Parameters &parameters, Interacting_GF &green
 
 void get_greater_lesser_gf(const Parameters &parameters, Interacting_GF &green_function) {
     for (int r = 0; r < parameters.steps; r++) {
-        green_function.greater_gf.at(r) = 0.5 * green_function.greater_gf.at(r) + 0.5 * green_function.retarded_gf.at(r) * green_function.greater_se.at(r) * std::conj(green_function.retarded_gf.at(r));
-        green_function.lesser_gf.at(r) = 0.5 * green_function.lesser_gf.at(r) + 0.5 * green_function.retarded_gf.at(r) * green_function.lesser_se.at(r) * std::conj(green_function.retarded_gf.at(r));
+        green_function.greater_gf.at(r) = green_function.retarded_gf.at(r) * green_function.greater_se.at(r) * std::conj(green_function.retarded_gf.at(r));
+        green_function.lesser_gf.at(r) = green_function.retarded_gf.at(r) * green_function.lesser_se.at(r) * std::conj(green_function.retarded_gf.at(r));
+    }
+}
+
+void get_greater_lesser_gf(const Parameters &parameters, Interacting_GF &green_function, int count) {
+    if (count < 10) {
+        for (int r = 0; r < parameters.steps; r++) {
+            green_function.greater_gf.at(r) = 0.5 * green_function.greater_gf.at(r) + 0.5 * green_function.retarded_gf.at(r) * green_function.greater_se.at(r) * std::conj(green_function.retarded_gf.at(r));
+            green_function.lesser_gf.at(r) = 0.5 * green_function.lesser_gf.at(r) + 0.5 * green_function.retarded_gf.at(r) * green_function.lesser_se.at(r) * std::conj(green_function.retarded_gf.at(r));
+        }
+    } else if (count > 10 && count < 0) {
+        for (int r = 0; r < parameters.steps; r++) {
+            green_function.greater_gf.at(r) = 0.75 * green_function.greater_gf.at(r) + 0.25 * green_function.retarded_gf.at(r) * green_function.greater_se.at(r) * std::conj(green_function.retarded_gf.at(r));
+            green_function.lesser_gf.at(r) = 0.75 * green_function.lesser_gf.at(r) + 0.25 * green_function.retarded_gf.at(r) * green_function.lesser_se.at(r) * std::conj(green_function.retarded_gf.at(r));
+        }    
+    } else {
+        for (int r = 0; r < parameters.steps; r++) {
+            green_function.greater_gf.at(r) = 0.9 * green_function.greater_gf.at(r) + 0.1 * green_function.retarded_gf.at(r) * green_function.greater_se.at(r) * std::conj(green_function.retarded_gf.at(r));
+            green_function.lesser_gf.at(r) = 0.9 * green_function.lesser_gf.at(r) + 0.1 * green_function.retarded_gf.at(r) * green_function.lesser_se.at(r) * std::conj(green_function.retarded_gf.at(r));
+        }
     }
 }
 
@@ -211,23 +228,17 @@ void impurity_solver(const Parameters &parameters, Interacting_GF &boson, Intera
             
             get_retarded_gf_boson(parameters, boson);
             
-            get_greater_lesser_gf(parameters, boson);
+            get_greater_lesser_gf(parameters, boson, count);
         }
 
         get_difference(parameters, old_self_energy, fermion_up.retarded_se, difference);
         count++;
         std::cout << "The count is " << count << ". The difference is " << difference << std::endl;
-        std::cout << "\n";
     }
 
     test_retarded_gf(parameters, boson, fermion_up, fermion_down);
 
 
     z_prefactor =  1.0 / get_z_prefactor(parameters, boson, fermion_up, fermion_down);
-    //std::cout << "The ratio of Z_0 / Z_1 is " << z_prefactor <<  std::endl;
-    //z_prefactor = 1.0 / z_prefactor;
-    //std::cout << "The ratio of Z_0 / Z_1 is " << z_prefactor << std::endl;
-    //std::cout << "The ratio of Z_0 / Z_1 is " << z_prefactor << " " << &z_prefactor << std::endl;
-
 }
 
